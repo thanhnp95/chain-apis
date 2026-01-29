@@ -176,7 +176,7 @@ func (s *Syncer) syncHistorical(ctx context.Context) {
 			return
 		default:
 		}
-
+		// log.Printf("[%s] Start sync to height %d", s.chain, height)
 		if err := s.syncBlock(height); err != nil {
 			log.Printf("[%s] Failed to sync block %d: %v", s.chain, height, err)
 			// Wait and retry
@@ -185,8 +185,10 @@ func (s *Syncer) syncHistorical(ctx context.Context) {
 			continue
 		}
 
-		// Log progress every 1000 blocks
-		if height%1000 == 0 {
+		// log.Printf("[%s] Finish sync to height %d", s.chain, height)
+
+		// Log progress every 100 blocks
+		if height%100 == 0 {
 			log.Printf("[%s] Synced to height %d", s.chain, height)
 		}
 	}

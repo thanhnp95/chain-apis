@@ -11,11 +11,11 @@ import (
 
 // VoutHandler handles vout-related API requests
 type VoutHandler struct {
-	voutStore *storage.VoutStore
+	voutStore *storage.MultiChainVoutStore
 }
 
 // NewVoutHandler creates a new VoutHandler
-func NewVoutHandler(voutStore *storage.VoutStore) *VoutHandler {
+func NewVoutHandler(voutStore *storage.MultiChainVoutStore) *VoutHandler {
 	return &VoutHandler{
 		voutStore: voutStore,
 	}

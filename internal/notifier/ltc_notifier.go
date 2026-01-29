@@ -269,7 +269,6 @@ func (n *LTCNotifier) GetBlock(hashStr string) (*models.Block, []*models.Transac
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-
 	return n.ParseLTCBlockWithTx(blockVerbose, msgBlock)
 }
 
@@ -303,7 +302,6 @@ func (n *LTCNotifier) ParseLTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-
 		var sent int64
 		var inputTotal int64
 		for _, txout := range rawTx.Vout {
@@ -367,7 +365,6 @@ func (n *LTCNotifier) ParseLTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 			}
 			vins = append(vins, vin)
 		}
-
 		// Parse vouts
 		for _, rawVout := range rawTx.Vout {
 			vout := &models.Vout{
@@ -388,7 +385,6 @@ func (n *LTCNotifier) ParseLTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 		}
 		txs = append(txs, txDb)
 	}
-
 	return block, txs, vins, vouts, nil
 }
 

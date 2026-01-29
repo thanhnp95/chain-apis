@@ -13,20 +13,20 @@ import (
 
 // AddressHandler handles address-related API requests
 type AddressHandler struct {
-	addressStore *storage.AddressStore
-	vinStore     *storage.VinStore
-	voutStore    *storage.VoutStore
-	txStore      *storage.TxStore
-	syncStore    *storage.SyncStore
+	addressStore *storage.MultiChainAddressStore
+	vinStore     *storage.MultiChainVinStore
+	voutStore    *storage.MultiChainVoutStore
+	txStore      *storage.MultiChainTxStore
+	syncStore    *storage.MultiChainSyncStore
 }
 
 // NewAddressHandler creates a new AddressHandler
 func NewAddressHandler(
-	addressStore *storage.AddressStore,
-	vinStore *storage.VinStore,
-	voutStore *storage.VoutStore,
-	txStore *storage.TxStore,
-	syncStore *storage.SyncStore,
+	addressStore *storage.MultiChainAddressStore,
+	vinStore *storage.MultiChainVinStore,
+	voutStore *storage.MultiChainVoutStore,
+	txStore *storage.MultiChainTxStore,
+	syncStore *storage.MultiChainSyncStore,
 ) *AddressHandler {
 	return &AddressHandler{
 		addressStore: addressStore,

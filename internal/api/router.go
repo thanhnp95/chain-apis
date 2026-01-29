@@ -20,12 +20,12 @@ type Router struct {
 
 // NewRouter creates a new Router with all handlers
 func NewRouter(
-	blockStore *storage.BlockStore,
-	txStore *storage.TxStore,
-	vinStore *storage.VinStore,
-	voutStore *storage.VoutStore,
-	addressStore *storage.AddressStore,
-	syncStore *storage.SyncStore,
+	blockStore *storage.MultiChainBlockStore,
+	txStore *storage.MultiChainTxStore,
+	vinStore *storage.MultiChainVinStore,
+	voutStore *storage.MultiChainVoutStore,
+	addressStore *storage.MultiChainAddressStore,
+	syncStore *storage.MultiChainSyncStore,
 ) *Router {
 	gin.SetMode(gin.ReleaseMode)
 

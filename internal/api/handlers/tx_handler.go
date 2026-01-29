@@ -10,14 +10,14 @@ import (
 
 // TxHandler handles transaction-related API requests
 type TxHandler struct {
-	txStore   *storage.TxStore
-	vinStore  *storage.VinStore
-	voutStore *storage.VoutStore
-	syncStore *storage.SyncStore
+	txStore   *storage.MultiChainTxStore
+	vinStore  *storage.MultiChainVinStore
+	voutStore *storage.MultiChainVoutStore
+	syncStore *storage.MultiChainSyncStore
 }
 
 // NewTxHandler creates a new TxHandler
-func NewTxHandler(txStore *storage.TxStore, vinStore *storage.VinStore, voutStore *storage.VoutStore, syncStore *storage.SyncStore) *TxHandler {
+func NewTxHandler(txStore *storage.MultiChainTxStore, vinStore *storage.MultiChainVinStore, voutStore *storage.MultiChainVoutStore, syncStore *storage.MultiChainSyncStore) *TxHandler {
 	return &TxHandler{
 		txStore:   txStore,
 		vinStore:  vinStore,

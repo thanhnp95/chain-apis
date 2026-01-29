@@ -11,11 +11,11 @@ import (
 
 // VinHandler handles vin-related API requests
 type VinHandler struct {
-	vinStore *storage.VinStore
+	vinStore *storage.MultiChainVinStore
 }
 
 // NewVinHandler creates a new VinHandler
-func NewVinHandler(vinStore *storage.VinStore) *VinHandler {
+func NewVinHandler(vinStore *storage.MultiChainVinStore) *VinHandler {
 	return &VinHandler{
 		vinStore: vinStore,
 	}

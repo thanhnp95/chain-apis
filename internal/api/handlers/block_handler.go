@@ -11,11 +11,11 @@ import (
 
 // BlockHandler handles block-related API requests
 type BlockHandler struct {
-	blockStore *storage.BlockStore
+	blockStore *storage.MultiChainBlockStore
 }
 
 // NewBlockHandler creates a new BlockHandler
-func NewBlockHandler(blockStore *storage.BlockStore) *BlockHandler {
+func NewBlockHandler(blockStore *storage.MultiChainBlockStore) *BlockHandler {
 	return &BlockHandler{
 		blockStore: blockStore,
 	}

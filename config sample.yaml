@@ -3,6 +3,9 @@ server:
   host: "0.0.0.0"
 
 pebble:
+  # Base path for databases. Each chain will have its own subdirectory:
+  # - {path}/btc for Bitcoin
+  # - {path}/ltc for Litecoin
   path: "../../../chain-apis-data/pebble"
 
 bitcoin:

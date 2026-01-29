@@ -32,21 +32,16 @@ func main() {
 
 	log.Println("Starting Chain APIs server...")
 
-	// Initialize Pebble database
-	log.Printf("Opening Pebble database at %s", cfg.Pebble.Path)
-	db, err := storage.NewPebbleDB(cfg.Pebble.Path)
-	if err != nil {
-		log.Fatalf("Failed to open Pebble database: %v", err)
-	}
-	defer db.Close()
+	// Initialize multi-chain stores
+	multiBlockStore := storage.NewMultiChainBlockStore()
+	multiTxStore := storage.NewMultiChainTxStore()
+	multiVinStore := storage.NewMultiChainVinStore()
+	multiVoutStore := storage.NewMultiChainVoutStore()
+	multiAddressStore := storage.NewMultiChainAddressStore()
+	multiSyncStore := storage.NewMultiChainSyncStore()
 
-	// Initialize stores
-	blockStore := storage.NewBlockStore(db)
-	txStore := storage.NewTxStore(db)
-	vinStore := storage.NewVinStore(db)
-	voutStore := storage.NewVoutStore(db)
-	addressStore := storage.NewAddressStore(db)
-	syncStore := storage.NewSyncStore(db)
+	// Track chain stores for cleanup
+	var chainStores []*storage.ChainStores
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,6 +53,24 @@ func main() {
 	// Bitcoin syncer
 	if cfg.Bitcoin.Enabled {
 		log.Println("Initializing Bitcoin notifier...")
+
+		// Create separate database for Bitcoin
+		btcDBPath := cfg.Pebble.Path + "/btc"
+		log.Printf("Opening Bitcoin Pebble database at %s", btcDBPath)
+		btcDB, err := storage.NewPebbleDB(btcDBPath)
+		if err != nil {
+			log.Fatalf("Failed to open Bitcoin Pebble database: %v", err)
+		}
+		btcStores := storage.NewChainStores(btcDB)
+		chainStores = append(chainStores, btcStores)
+
+		// Register Bitcoin stores in multi-chain stores
+		multiBlockStore.RegisterChain("btc", btcStores.BlockStore)
+		multiTxStore.RegisterChain("btc", btcStores.TxStore)
+		multiVinStore.RegisterChain("btc", btcStores.VinStore)
+		multiVoutStore.RegisterChain("btc", btcStores.VoutStore)
+		multiAddressStore.RegisterChain("btc", btcStores.AddressStore)
+		multiSyncStore.RegisterChain("btc", btcStores.SyncStore)
 
 		// Create the notifier first
 		btcNotifier := notifier.NewBTCNotifier()
@@ -83,12 +96,12 @@ func main() {
 
 			btcSyncer := sync.NewSyncer(
 				btcNotifier,
-				blockStore,
-				txStore,
-				vinStore,
-				voutStore,
-				addressStore,
-				syncStore,
+				btcStores.BlockStore,
+				btcStores.TxStore,
+				btcStores.VinStore,
+				btcStores.VoutStore,
+				btcStores.AddressStore,
+				btcStores.SyncStore,
 				cfg.Bitcoin.StartHeight,
 			)
 			// Save the client to the syncer for normal RPC calls
@@ -106,6 +119,24 @@ func main() {
 	// Litecoin syncer
 	if cfg.Litecoin.Enabled {
 		log.Println("Initializing Litecoin notifier...")
+
+		// Create separate database for Litecoin
+		ltcDBPath := cfg.Pebble.Path + "/ltc"
+		log.Printf("Opening Litecoin Pebble database at %s", ltcDBPath)
+		ltcDB, err := storage.NewPebbleDB(ltcDBPath)
+		if err != nil {
+			log.Fatalf("Failed to open Litecoin Pebble database: %v", err)
+		}
+		ltcStores := storage.NewChainStores(ltcDB)
+		chainStores = append(chainStores, ltcStores)
+
+		// Register Litecoin stores in multi-chain stores
+		multiBlockStore.RegisterChain("ltc", ltcStores.BlockStore)
+		multiTxStore.RegisterChain("ltc", ltcStores.TxStore)
+		multiVinStore.RegisterChain("ltc", ltcStores.VinStore)
+		multiVoutStore.RegisterChain("ltc", ltcStores.VoutStore)
+		multiAddressStore.RegisterChain("ltc", ltcStores.AddressStore)
+		multiSyncStore.RegisterChain("ltc", ltcStores.SyncStore)
 
 		// Create the notifier first
 		ltcNotifier := notifier.NewLTCNotifier()
@@ -131,12 +162,12 @@ func main() {
 
 			ltcSyncer := sync.NewSyncer(
 				ltcNotifier,
-				blockStore,
-				txStore,
-				vinStore,
-				voutStore,
-				addressStore,
-				syncStore,
+				ltcStores.BlockStore,
+				ltcStores.TxStore,
+				ltcStores.VinStore,
+				ltcStores.VoutStore,
+				ltcStores.AddressStore,
+				ltcStores.SyncStore,
 				cfg.Litecoin.StartHeight,
 			)
 			// Save the client to the syncer for normal RPC calls
@@ -151,14 +182,14 @@ func main() {
 		}
 	}
 
-	// Initialize API router
+	// Initialize API router with multi-chain stores
 	router := api.NewRouter(
-		blockStore,
-		txStore,
-		vinStore,
-		voutStore,
-		addressStore,
-		syncStore,
+		multiBlockStore,
+		multiTxStore,
+		multiVinStore,
+		multiVoutStore,
+		multiAddressStore,
+		multiSyncStore,
 	)
 
 	// Create HTTP server
@@ -193,6 +224,13 @@ func main() {
 	for _, s := range syncers {
 		if err := s.Stop(); err != nil {
 			log.Printf("Error stopping syncer: %v", err)
+		}
+	}
+
+	// Close all chain databases
+	for _, cs := range chainStores {
+		if err := cs.Close(); err != nil {
+			log.Printf("Error closing chain database: %v", err)
 		}
 	}
 

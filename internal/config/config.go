@@ -24,7 +24,7 @@ type ServerConfig struct {
 
 // PebbleConfig represents the Pebble database configuration
 type PebbleConfig struct {
-	Path string `yaml:"path"`
+	Path string `yaml:"path"` // Base path, will be suffixed with chain name for per-chain DBs
 }
 
 // ChainConfig represents the configuration for a blockchain node

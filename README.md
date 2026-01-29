@@ -25,7 +25,11 @@ cp "config sample.yaml" config.yaml
 |---------|-------|-------------|
 | `server.port` | API server port | Default: `8089` |
 | `server.host` | API server host | Default: `0.0.0.0` |
-| `pebble.path` | Path to Pebble database | Default: `./data/pebble` |
+| `pebble.path` | Base path for Pebble databases | Default: `./data/pebble` |
+
+**Note:** Each chain uses a separate database for better performance. The actual database paths are:
+- Bitcoin: `{pebble.path}/btc`
+- Litecoin: `{pebble.path}/ltc`
 | `bitcoin.enabled` | Enable Bitcoin sync | `true` or `false` |
 | `bitcoin.host` | Bitcoin RPC host:port | e.g., `localhost:8334` |
 | `bitcoin.user` | Bitcoin RPC username | |

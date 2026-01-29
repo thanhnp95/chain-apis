@@ -1,0 +1,26 @@
+server:
+  port: 8089
+  host: "0.0.0.0"
+
+pebble:
+  path: "../../../chain-apis-data/pebble"
+
+bitcoin:
+  enabled: true
+  host: "localhost:8334"
+  user: "bitcoin-rpc-user"
+  pass: "bitcoin-rpc-pass"
+  cert: "/root/.btcd/rpc.cert"
+  disable_tls: false
+  http_mode: false
+  start_height: 0
+
+litecoin:
+  enabled: true
+  host: "localhost:9334"
+  user: "litecoin-rpc-user"
+  pass: "litecoin-rpc-pass"
+  cert: "/root/.ltcd/rpc.cert"
+  disable_tls: false
+  http_mode: false
+  start_height: 0

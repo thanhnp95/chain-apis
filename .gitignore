@@ -1,0 +1,5 @@
+/cmd/server/nohup.out
+/cmd/server/server
+/cmd/server/*.exe
+config.yaml
+*.out

@@ -5,6 +5,7 @@ A high-performance blockchain data API service for Bitcoin and Litecoin. This se
 ## Features
 
 - Multi-chain support (Bitcoin and Litecoin)
+- Supports both bitcoind/litecoind (HTTP mode) and btcd/ltcd (WebSocket mode)
 - Real-time block synchronization with automatic reorg handling
 - High-performance storage using Pebble (RocksDB-compatible)
 - RESTful API with JSON responses
@@ -31,14 +32,78 @@ cp "config sample.yaml" config.yaml
 - Bitcoin: `{pebble.path}/btc`
 - Litecoin: `{pebble.path}/ltc`
 | `bitcoin.enabled` | Enable Bitcoin sync | `true` or `false` |
-| `bitcoin.host` | Bitcoin RPC host:port | e.g., `localhost:8334` |
+| `bitcoin.host` | Bitcoin RPC host:port | `localhost:8332` (bitcoind) or `localhost:8334` (btcd) |
 | `bitcoin.user` | Bitcoin RPC username | |
 | `bitcoin.pass` | Bitcoin RPC password | |
-| `bitcoin.cert` | Path to RPC TLS certificate | Required if TLS enabled |
-| `bitcoin.disable_tls` | Disable TLS for RPC | `true` or `false` |
-| `bitcoin.http_mode` | Use HTTP instead of WebSocket | `true` or `false` |
+| `bitcoin.cert` | Path to RPC TLS certificate | Required if TLS enabled (btcd only) |
+| `bitcoin.disable_tls` | Disable TLS for RPC | `true` for bitcoind, `false` for btcd |
+| `bitcoin.http_mode` | Use HTTP instead of WebSocket | `true` for bitcoind, `false` for btcd |
+| `bitcoin.poll_interval` | Block polling interval in seconds | Default: `10` (HTTP mode only) |
 | `bitcoin.start_height` | Block height to start syncing from | `0` for genesis |
-| `litecoin.*` | Same options as bitcoin | |
+| `litecoin.*` | Same options as bitcoin | Use port `9332` for litecoind, `9334` for ltcd |
+
+### Node Configuration
+
+#### For bitcoind (Bitcoin Core)
+
+Add the following to your `bitcoin.conf`:
+
+```ini
+server=1
+rpcuser=your_rpc_username
+rpcpassword=your_rpc_password
+rpcallowip=127.0.0.1
+rpcport=8332
+txindex=1
+```
+
+#### For litecoind (Litecoin Core)
+
+Add the following to your `litecoin.conf`:
+
+```ini
+server=1
+rpcuser=your_rpc_username
+rpcpassword=your_rpc_password
+rpcallowip=127.0.0.1
+rpcport=9332
+txindex=1
+```
+
+**Important:** The `txindex=1` option is required to enable transaction indexing, which allows the API to query any transaction by its ID.
+
+### Example Configuration (bitcoind/litecoind)
+
+```yaml
+server:
+  port: 8089
+  host: "0.0.0.0"
+
+pebble:
+  path: "./data/pebble"
+
+bitcoin:
+  enabled: true
+  host: "localhost:8332"
+  user: "your_rpc_username"
+  pass: "your_rpc_password"
+  cert: ""
+  disable_tls: true
+  http_mode: true
+  poll_interval: 10
+  start_height: 0
+
+litecoin:
+  enabled: true
+  host: "localhost:9332"
+  user: "your_rpc_username"
+  pass: "your_rpc_password"
+  cert: ""
+  disable_tls: true
+  http_mode: true
+  poll_interval: 10
+  start_height: 0
+```
 
 ## Running the Server
 
@@ -413,12 +478,17 @@ All endpoints return errors in the following format:
 ```
 ┌─────────────────┐     ┌─────────────────┐
 │   Bitcoin Node  │     │  Litecoin Node  │
-│    (btcd)       │     │    (ltcd)       │
+│   (bitcoind)    │     │   (litecoind)   │
 └────────┬────────┘     └────────┬────────┘
          │                       │
-         │ RPC/WebSocket         │ RPC/WebSocket
+         │ JSON-RPC (HTTP)       │ JSON-RPC (HTTP)
          │                       │
          └───────────┬───────────┘
+                     │
+              ┌──────▼──────┐
+              │  Notifier   │
+              │  (polling)  │
+              └──────┬──────┘
                      │
               ┌──────▼──────┐
               │   Syncer    │
@@ -435,6 +505,13 @@ All endpoints return errors in the following format:
               │   (Gin)     │
               └─────────────┘
 ```
+
+### Connection Modes
+
+| Mode | Node Type | Protocol | New Block Detection |
+|------|-----------|----------|---------------------|
+| HTTP | bitcoind/litecoind | JSON-RPC over HTTP | Polling (configurable interval) |
+| WebSocket | btcd/ltcd | JSON-RPC over WebSocket | Real-time notifications |
 
 ## License
 

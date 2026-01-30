@@ -289,3 +289,46 @@ func (c *LTCClient) ParseBlockWithTx(blockVerbose *btcjson.GetBlockVerboseTxResu
 func (c *LTCClient) GetClient() *rpcclient.Client {
 	return c.client
 }
+
+// ConnectLTCHTTP creates an HTTP-mode RPC client for litecoind
+// This is simpler than ConnectLTCNodeRPC as it doesn't check for ltcd-specific API versions
+func ConnectLTCHTTP(cfg *config.ChainConfig) (*rpcclient.Client, error) {
+	var certs []byte
+	var err error
+
+	if !cfg.DisableTLS && cfg.Cert != "" {
+		certs, err = os.ReadFile(cfg.Cert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate: %w", err)
+		}
+		log.Printf("Attempting to connect to litecoind RPC %s as user %s using certificate located in %s",
+			cfg.Host, cfg.User, cfg.Cert)
+	} else {
+		log.Printf("Attempting to connect to litecoind RPC %s as user %s (no TLS)",
+			cfg.Host, cfg.User)
+	}
+
+	connCfg := &rpcclient.ConnConfig{
+		Host:         cfg.Host,
+		User:         cfg.User,
+		Pass:         cfg.Pass,
+		HTTPPostMode: true,
+		DisableTLS:   cfg.DisableTLS,
+		Certificates: certs,
+	}
+
+	client, err := rpcclient.New(connCfg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC client: %w", err)
+	}
+
+	// Verify connection by getting block count
+	_, err = client.GetBlockCount()
+	if err != nil {
+		client.Shutdown()
+		return nil, fmt.Errorf("failed to connect to litecoind: %w", err)
+	}
+
+	log.Printf("Connected to litecoind at %s (HTTP mode)", cfg.Host)
+	return client, nil
+}

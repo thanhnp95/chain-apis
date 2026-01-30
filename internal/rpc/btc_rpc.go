@@ -289,3 +289,46 @@ func (c *BTCClient) ParseBlockWithTx(blockVerbose *btcjson.GetBlockVerboseTxResu
 func (c *BTCClient) GetClient() *rpcclient.Client {
 	return c.client
 }
+
+// ConnectBTCHTTP creates an HTTP-mode RPC client for bitcoind
+// This is simpler than ConnectNodeRPC as it doesn't check for btcd-specific API versions
+func ConnectBTCHTTP(cfg *config.ChainConfig) (*rpcclient.Client, error) {
+	var certs []byte
+	var err error
+
+	if !cfg.DisableTLS && cfg.Cert != "" {
+		certs, err = os.ReadFile(cfg.Cert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate: %w", err)
+		}
+		log.Printf("Attempting to connect to bitcoind RPC %s as user %s using certificate located in %s",
+			cfg.Host, cfg.User, cfg.Cert)
+	} else {
+		log.Printf("Attempting to connect to bitcoind RPC %s as user %s (no TLS)",
+			cfg.Host, cfg.User)
+	}
+
+	connCfg := &rpcclient.ConnConfig{
+		Host:         cfg.Host,
+		User:         cfg.User,
+		Pass:         cfg.Pass,
+		HTTPPostMode: true,
+		DisableTLS:   cfg.DisableTLS,
+		Certificates: certs,
+	}
+
+	client, err := rpcclient.New(connCfg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC client: %w", err)
+	}
+
+	// Verify connection by getting block count
+	_, err = client.GetBlockCount()
+	if err != nil {
+		client.Shutdown()
+		return nil, fmt.Errorf("failed to connect to bitcoind: %w", err)
+	}
+
+	log.Printf("Connected to bitcoind at %s (HTTP mode)", cfg.Host)
+	return client, nil
+}

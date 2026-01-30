@@ -10,20 +10,20 @@ pebble:
 
 bitcoin:
   enabled: true
-  host: "localhost:8334"
+  host: "localhost:8332"              # bitcoind default RPC port
   user: "bitcoin-rpc-user"
   pass: "bitcoin-rpc-pass"
-  cert: "/root/.btcd/rpc.cert"
-  disable_tls: false
-  http_mode: false
+  cert: ""                            # not needed when disable_tls is true
+  disable_tls: true                   # bitcoind typically doesn't use TLS locally
+  http_mode: true                     # required for bitcoind (uses HTTP JSON-RPC)
   start_height: 0
 
 litecoin:
   enabled: true
-  host: "localhost:9334"
+  host: "localhost:9332"              # litecoind default RPC port
   user: "litecoin-rpc-user"
   pass: "litecoin-rpc-pass"
-  cert: "/root/.ltcd/rpc.cert"
-  disable_tls: false
-  http_mode: false
+  cert: ""                            # not needed when disable_tls is true
+  disable_tls: true                   # litecoind typically doesn't use TLS locally
+  http_mode: true                     # required for litecoind (uses HTTP JSON-RPC)
   start_height: 0

@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	btcrpcclient "github.com/btcsuite/btcd/rpcclient"
+	ltcrpcclient "github.com/ltcsuite/ltcd/rpcclient"
+
 	"github.com/thanhnp/chain-apis/internal/api"
 	"github.com/thanhnp/chain-apis/internal/config"
 	"github.com/thanhnp/chain-apis/internal/notifier"
@@ -75,25 +78,44 @@ func main() {
 		// Create the notifier first
 		btcNotifier := notifier.NewBTCNotifier()
 
-		// Connect to btcd using the notifier's handlers
-		btcdClient, btcNodeVer, btcConnectErr := rpc.ConnectNodeRPC(
-			cfg.Bitcoin.Host,
-			cfg.Bitcoin.User,
-			cfg.Bitcoin.Pass,
-			cfg.Bitcoin.Cert,
-			cfg.Bitcoin.DisableTLS,
-			false, // disableReconnect
-			btcNotifier.BtcdHandlers(),
-		)
+		var btcConnectErr error
+		var btcdClient interface{ Shutdown() }
+
+		if cfg.Bitcoin.HTTPMode {
+			// HTTP mode for bitcoind
+			log.Println("Using HTTP mode for bitcoind connection")
+			btcNotifier.SetHTTPMode(true, cfg.Bitcoin.PollInterval)
+
+			client, err := rpc.ConnectBTCHTTP(&cfg.Bitcoin)
+			if err != nil {
+				btcConnectErr = err
+			} else {
+				btcdClient = client
+				btcNotifier.SetClient(client)
+			}
+		} else {
+			// WebSocket mode for btcd
+			client, btcNodeVer, err := rpc.ConnectNodeRPC(
+				cfg.Bitcoin.Host,
+				cfg.Bitcoin.User,
+				cfg.Bitcoin.Pass,
+				cfg.Bitcoin.Cert,
+				cfg.Bitcoin.DisableTLS,
+				false, // disableReconnect
+				btcNotifier.BtcdHandlers(),
+			)
+			if err != nil {
+				btcConnectErr = err
+			} else {
+				log.Printf("Connected to btcd, API version: %s", btcNodeVer)
+				btcdClient = client
+				btcNotifier.SetClient(client)
+			}
+		}
 
 		if btcConnectErr != nil {
 			log.Printf("Warning: Failed to connect to Bitcoin node: %v", btcConnectErr)
 		} else {
-			log.Printf("Connected to btcd, API version: %s", btcNodeVer)
-
-			// Set the client on the notifier
-			btcNotifier.SetClient(btcdClient)
-
 			btcSyncer := sync.NewSyncer(
 				btcNotifier,
 				btcStores.BlockStore,
@@ -105,7 +127,9 @@ func main() {
 				cfg.Bitcoin.StartHeight,
 			)
 			// Save the client to the syncer for normal RPC calls
-			btcSyncer.SetClient(btcdClient)
+			if client, ok := btcdClient.(*btcrpcclient.Client); ok {
+				btcSyncer.SetClient(client)
+			}
 			syncers = append(syncers, btcSyncer)
 
 			if err := btcSyncer.Start(ctx); err != nil {
@@ -141,25 +165,44 @@ func main() {
 		// Create the notifier first
 		ltcNotifier := notifier.NewLTCNotifier()
 
-		// Connect to ltcd using the notifier's handlers
-		ltcdClient, ltcNodeVer, ltcConnectErr := rpc.ConnectLTCNodeRPC(
-			cfg.Litecoin.Host,
-			cfg.Litecoin.User,
-			cfg.Litecoin.Pass,
-			cfg.Litecoin.Cert,
-			cfg.Litecoin.DisableTLS,
-			false, // disableReconnect
-			ltcNotifier.LtcdHandlers(),
-		)
+		var ltcConnectErr error
+		var ltcdClient interface{ Shutdown() }
+
+		if cfg.Litecoin.HTTPMode {
+			// HTTP mode for litecoind
+			log.Println("Using HTTP mode for litecoind connection")
+			ltcNotifier.SetHTTPMode(true, cfg.Litecoin.PollInterval)
+
+			client, err := rpc.ConnectLTCHTTP(&cfg.Litecoin)
+			if err != nil {
+				ltcConnectErr = err
+			} else {
+				ltcdClient = client
+				ltcNotifier.SetClient(client)
+			}
+		} else {
+			// WebSocket mode for ltcd
+			client, ltcNodeVer, err := rpc.ConnectLTCNodeRPC(
+				cfg.Litecoin.Host,
+				cfg.Litecoin.User,
+				cfg.Litecoin.Pass,
+				cfg.Litecoin.Cert,
+				cfg.Litecoin.DisableTLS,
+				false, // disableReconnect
+				ltcNotifier.LtcdHandlers(),
+			)
+			if err != nil {
+				ltcConnectErr = err
+			} else {
+				log.Printf("Connected to ltcd, API version: %s", ltcNodeVer)
+				ltcdClient = client
+				ltcNotifier.SetClient(client)
+			}
+		}
 
 		if ltcConnectErr != nil {
 			log.Printf("Warning: Failed to connect to Litecoin node: %v", ltcConnectErr)
 		} else {
-			log.Printf("Connected to ltcd, API version: %s", ltcNodeVer)
-
-			// Set the client on the notifier
-			ltcNotifier.SetClient(ltcdClient)
-
 			ltcSyncer := sync.NewSyncer(
 				ltcNotifier,
 				ltcStores.BlockStore,
@@ -171,7 +214,9 @@ func main() {
 				cfg.Litecoin.StartHeight,
 			)
 			// Save the client to the syncer for normal RPC calls
-			ltcSyncer.SetLTCClient(ltcdClient)
+			if client, ok := ltcdClient.(*ltcrpcclient.Client); ok {
+				ltcSyncer.SetLTCClient(client)
+			}
 			syncers = append(syncers, ltcSyncer)
 
 			if err := ltcSyncer.Start(ctx); err != nil {

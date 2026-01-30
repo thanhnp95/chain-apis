@@ -7,12 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
 
 	"github.com/thanhnp/chain-apis/internal/models"
 )
@@ -40,6 +38,9 @@ type BTCNotifier struct {
 	mu                sync.RWMutex
 	running           bool
 	cancel            context.CancelFunc
+	httpMode          bool          // true for bitcoind (HTTP polling), false for btcd (WebSocket)
+	pollInterval      time.Duration // polling interval for HTTP mode
+	lastKnownHeight   int64         // last known block height for polling
 	previous          struct {
 		hash   chainhash.Hash
 		height uint32
@@ -51,7 +52,18 @@ func NewBTCNotifier() *BTCNotifier {
 	return &BTCNotifier{
 		// anyQ can cause deadlocks if it gets full. All mempool transactions pass
 		// through here, so the size should stay pretty big.
-		anyQ: make(chan interface{}, 1024),
+		anyQ:         make(chan interface{}, 1024),
+		pollInterval: 10 * time.Second, // default polling interval
+	}
+}
+
+// SetHTTPMode enables HTTP polling mode for bitcoind
+func (n *BTCNotifier) SetHTTPMode(enabled bool, pollIntervalSecs int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.httpMode = enabled
+	if pollIntervalSecs > 0 {
+		n.pollInterval = time.Duration(pollIntervalSecs) * time.Second
 	}
 }
 
@@ -124,9 +136,100 @@ func (n *BTCNotifier) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	n.cancel = cancel
 	n.running = true
+	httpMode := n.httpMode
 	n.mu.Unlock()
 
+	if httpMode {
+		// HTTP mode: use polling
+		return n.ListenHTTP(ctx)
+	}
+	// WebSocket mode: use notifications
 	return n.Listen(ctx)
+}
+
+// ListenHTTP starts polling for new blocks (for bitcoind HTTP mode)
+func (n *BTCNotifier) ListenHTTP(ctx context.Context) error {
+	n.mu.RLock()
+	if n.client == nil {
+		n.mu.RUnlock()
+		return fmt.Errorf("client not set, call SetClient first")
+	}
+	pollInterval := n.pollInterval
+	n.mu.RUnlock()
+
+	// Get initial height
+	height, err := n.client.GetBlockCount()
+	if err != nil {
+		return fmt.Errorf("failed to get initial block count: %w", err)
+	}
+	n.mu.Lock()
+	n.lastKnownHeight = height
+	n.mu.Unlock()
+
+	log.Printf("[BTC] Starting HTTP polling mode with interval %v, current height: %d", pollInterval, height)
+
+	go n.superQueue(ctx)
+	go n.pollBlocks(ctx, pollInterval)
+
+	return nil
+}
+
+// pollBlocks polls for new blocks periodically
+func (n *BTCNotifier) pollBlocks(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[BTC] Block polling stopped")
+			return
+		case <-ticker.C:
+			n.checkForNewBlocks()
+		}
+	}
+}
+
+// checkForNewBlocks checks if there are new blocks and queues them
+func (n *BTCNotifier) checkForNewBlocks() {
+	n.mu.RLock()
+	client := n.client
+	lastHeight := n.lastKnownHeight
+	n.mu.RUnlock()
+
+	if client == nil {
+		return
+	}
+
+	currentHeight, err := client.GetBlockCount()
+	if err != nil {
+		log.Printf("[BTC] Failed to get block count: %v", err)
+		return
+	}
+
+	// Process any new blocks
+	for height := lastHeight + 1; height <= currentHeight; height++ {
+		hash, err := client.GetBlockHash(height)
+		if err != nil {
+			log.Printf("[BTC] Failed to get block hash for height %d: %v", height, err)
+			return
+		}
+
+		blockHeader := &BtcBlockHeader{
+			Hash:   *hash,
+			Height: int32(height),
+			Time:   time.Now(),
+		}
+
+		log.Printf("[BTC] Poll: New block detected at height %d: %v", height, hash)
+		n.anyQ <- blockHeader
+	}
+
+	if currentHeight > lastHeight {
+		n.mu.Lock()
+		n.lastKnownHeight = currentHeight
+		n.mu.Unlock()
+	}
 }
 
 // Stop stops the notifier
@@ -245,7 +348,7 @@ func (n *BTCNotifier) OnBlockDisconnected(handler DisconnectHandler) {
 	n.disconnectHandler = handler
 }
 
-// GetBlock retrieves a block by hash
+// GetBlock retrieves a block by hash using a single GetBlockVerboseTx RPC call
 func (n *BTCNotifier) GetBlock(hashStr string) (*models.Block, []*models.Transaction, []*models.Vin, []*models.Vout, error) {
 	n.mu.RLock()
 	client := n.client
@@ -257,32 +360,30 @@ func (n *BTCNotifier) GetBlock(hashStr string) (*models.Block, []*models.Transac
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("invalid block hash: %w", err)
 	}
-	blockVerbose, err := client.GetBlockVerbose(hash)
+
+	// Use GetBlockVerboseTx to get block with all transaction details in one call
+	blockVerboseTx, err := client.GetBlockVerboseTx(hash)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to get block header verbose: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to get block verbose tx: %w", err)
 	}
 
-	msgBlock, err := client.GetBlock(hash)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	return n.ParseBTCBlockWithTx(blockVerbose, msgBlock)
+	return n.ParseBTCBlockVerboseTx(blockVerboseTx)
 }
 
-// ParseBTCBlockWithTx is a standalone function to parse btcd block data with transactions
-func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseResult, msgBlock *wire.MsgBlock) (*models.Block, []*models.Transaction, []*models.Vin, []*models.Vout, error) {
+// ParseBTCBlockVerboseTx parses block data from GetBlockVerboseTx result
+func (n *BTCNotifier) ParseBTCBlockVerboseTx(blockVerboseTx *btcjson.GetBlockVerboseTxResult) (*models.Block, []*models.Transaction, []*models.Vin, []*models.Vout, error) {
 	block := &models.Block{
-		Hash:         blockVerbose.Hash,
-		Height:       blockVerbose.Height,
-		Version:      blockVerbose.Version,
-		PreviousHash: blockVerbose.PreviousHash,
-		MerkleRoot:   blockVerbose.MerkleRoot,
-		Timestamp:    time.Unix(blockVerbose.Time, 0),
-		Bits:         blockVerbose.Bits,
-		Nonce:        blockVerbose.Nonce,
-		TxCount:      len(msgBlock.Transactions),
-		Size:         int(blockVerbose.Size),
-		Weight:       int(blockVerbose.Weight),
+		Hash:         blockVerboseTx.Hash,
+		Height:       blockVerboseTx.Height,
+		Version:      blockVerboseTx.Version,
+		PreviousHash: blockVerboseTx.PreviousHash,
+		MerkleRoot:   blockVerboseTx.MerkleRoot,
+		Timestamp:    time.Unix(blockVerboseTx.Time, 0),
+		Bits:         blockVerboseTx.Bits,
+		Nonce:        blockVerboseTx.Nonce,
+		TxCount:      len(blockVerboseTx.Tx),
+		Size:         int(blockVerboseTx.Size),
+		Weight:       int(blockVerboseTx.Weight),
 		Chain:        "btc",
 	}
 
@@ -290,17 +391,9 @@ func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 	var vins []*models.Vin
 	var vouts []*models.Vout
 
-	for idx, tx := range msgBlock.Transactions {
-		txhash, err := chainhash.NewHashFromStr(tx.TxHash().String())
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid block hash: %w", err)
-		}
-		rawTx, err := n.client.GetRawTransactionVerbose(txhash)
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
+	for _, rawTx := range blockVerboseTx.Tx {
+		// Calculate total sent (sum of all outputs)
 		var sent int64
-		var inputTotal int64
 		for _, txout := range rawTx.Vout {
 			txAmount, err := btcutil.NewAmount(txout.Value)
 			if err != nil {
@@ -308,13 +401,14 @@ func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 			}
 			sent += int64(txAmount)
 		}
-		// Check if this is a coinbase transaction
-		// Coinbase tx has a single vin with empty Txid
-		isCoinbase := blockchain.IsCoinBaseTx(msgBlock.Transactions[idx])
+
+		// Check if this is a coinbase transaction (first vin has empty Txid)
+		isCoinbase := len(rawTx.Vin) > 0 && rawTx.Vin[0].Txid == ""
+
 		txDb := &models.Transaction{
 			TxID:        rawTx.Txid,
-			BlockHash:   blockVerbose.Hash,
-			BlockHeight: blockVerbose.Height,
+			BlockHash:   blockVerboseTx.Hash,
+			BlockHeight: blockVerboseTx.Height,
 			Version:     int32(rawTx.Version),
 			LockTime:    rawTx.LockTime,
 			Size:        int(rawTx.Size),
@@ -322,27 +416,14 @@ func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 			Weight:      int(rawTx.Weight),
 			IsCoinbase:  isCoinbase,
 			Sent:        sent,
-			Timestamp:   time.Unix(blockVerbose.Time, 0),
+			Timestamp:   time.Unix(blockVerboseTx.Time, 0),
 			NumVin:      len(rawTx.Vin),
 			NumVout:     len(rawTx.Vout),
 			Chain:       "btc",
 		}
-		// calculate inputTotal
-		for vinIdx, txin := range tx.TxIn {
-			if !isCoinbase {
-				//Get transaction by txin
-				txInDetail, err := n.client.GetRawTransactionVerbose(&txin.PreviousOutPoint.Hash)
-				if err != nil {
-					return nil, nil, nil, nil, err
-				}
-				inAmountCoin := txInDetail.Vout[txin.PreviousOutPoint.Index].Value
-				amount, err := btcutil.NewAmount(inAmountCoin)
-				if err != nil {
-					return nil, nil, nil, nil, err
-				}
-				inputTotal += int64(amount)
-			}
-			rawVin := rawTx.Vin[vinIdx]
+
+		// Parse vins
+		for vinIdx, rawVin := range rawTx.Vin {
 			vin := &models.Vin{
 				TxID:        rawTx.Txid,
 				VinIndex:    vinIdx,
@@ -364,7 +445,7 @@ func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 		for _, rawVout := range rawTx.Vout {
 			vout := &models.Vout{
 				TxID:         rawTx.Txid,
-				VoutIndex:    int(rawVout.N),             // Use actual vout index from RPC, not loop index
+				VoutIndex:    int(rawVout.N),
 				Value:        int64(rawVout.Value * 1e8), // Convert BTC to satoshis
 				ScriptPubKey: rawVout.ScriptPubKey.Hex,
 				Type:         rawVout.ScriptPubKey.Type,
@@ -374,9 +455,7 @@ func (n *BTCNotifier) ParseBTCBlockWithTx(blockVerbose *btcjson.GetBlockVerboseR
 			}
 			vouts = append(vouts, vout)
 		}
-		if !isCoinbase {
-			txDb.Fee = inputTotal - sent
-		}
+
 		txs = append(txs, txDb)
 	}
 

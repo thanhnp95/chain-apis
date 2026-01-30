@@ -49,7 +49,8 @@ const (
 
 // PebbleDB wraps the Pebble database
 type PebbleDB struct {
-	db *pebble.DB
+	db                 *pebble.DB
+	historicalSyncMode bool // When true, uses NoSync for faster writes
 }
 
 // WriteBatch wraps Pebble's batch for atomic writes
@@ -73,7 +74,7 @@ func NewPebbleDB(path string) (*PebbleDB, error) {
 	}
 
 	opts := &pebble.Options{
-		Cache:        pebble.NewCache(64 << 20), // 64MB cache
+		Cache:        pebble.NewCache(512 << 20), // 512MB cache for faster sync
 		MaxOpenFiles: 500,
 	}
 
@@ -88,6 +89,31 @@ func NewPebbleDB(path string) (*PebbleDB, error) {
 // Close closes the database
 func (p *PebbleDB) Close() error {
 	return p.db.Close()
+}
+
+// SetHistoricalSyncMode enables/disables historical sync mode.
+// When enabled, writes use NoSync for faster performance.
+// Call Sync() at checkpoints to ensure data durability.
+func (p *PebbleDB) SetHistoricalSyncMode(enabled bool) {
+	p.historicalSyncMode = enabled
+}
+
+// IsHistoricalSyncMode returns true if historical sync mode is enabled
+func (p *PebbleDB) IsHistoricalSyncMode() bool {
+	return p.historicalSyncMode
+}
+
+// Sync forces a sync to disk. Use this at checkpoints during historical sync.
+func (p *PebbleDB) Sync() error {
+	return p.db.Flush()
+}
+
+// writeOptions returns the appropriate write options based on sync mode
+func (p *PebbleDB) writeOptions() *pebble.WriteOptions {
+	if p.historicalSyncMode {
+		return pebble.NoSync
+	}
+	return pebble.Sync
 }
 
 // prefixKey creates a prefixed key for the given column family
@@ -105,7 +131,7 @@ func (p *PebbleDB) Put(cf string, key, value []byte) error {
 	if err != nil {
 		return err
 	}
-	return p.db.Set(prefixedKey, value, pebble.Sync)
+	return p.db.Set(prefixedKey, value, p.writeOptions())
 }
 
 // Get retrieves a value from the specified column family
@@ -136,7 +162,7 @@ func (p *PebbleDB) Delete(cf string, key []byte) error {
 	if err != nil {
 		return err
 	}
-	return p.db.Delete(prefixedKey, pebble.Sync)
+	return p.db.Delete(prefixedKey, p.writeOptions())
 }
 
 // NewBatch creates a new write batch
@@ -149,7 +175,7 @@ func (p *PebbleDB) NewBatch() *WriteBatch {
 
 // WriteBatch writes a batch to the database
 func (p *PebbleDB) WriteBatch(batch *WriteBatch) error {
-	return batch.batch.Commit(pebble.Sync)
+	return batch.batch.Commit(p.writeOptions())
 }
 
 // PutBatch adds a put operation to the batch

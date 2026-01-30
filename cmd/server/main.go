@@ -118,6 +118,7 @@ func main() {
 		} else {
 			btcSyncer := sync.NewSyncer(
 				btcNotifier,
+				btcStores.DB,
 				btcStores.BlockStore,
 				btcStores.TxStore,
 				btcStores.VinStore,
@@ -205,6 +206,7 @@ func main() {
 		} else {
 			ltcSyncer := sync.NewSyncer(
 				ltcNotifier,
+				ltcStores.DB,
 				ltcStores.BlockStore,
 				ltcStores.TxStore,
 				ltcStores.VinStore,

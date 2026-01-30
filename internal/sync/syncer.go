@@ -22,11 +22,15 @@ type pendingBlock struct {
 	vouts []*models.Vout
 }
 
+// SyncCheckpointInterval is the number of blocks between sync checkpoints during historical sync
+const SyncCheckpointInterval = 300
+
 // Syncer handles historical block synchronization
 type Syncer struct {
 	notifier       notifier.BlockNotifier
 	btcClient      *btcrpcclient.Client
 	ltcClient      *ltcrpcclient.Client
+	db             *storage.PebbleDB // direct db reference for sync control
 	blockStore     *storage.BlockStore
 	txStore        *storage.TxStore
 	vinStore       *storage.VinStore
@@ -45,6 +49,7 @@ type Syncer struct {
 // NewSyncer creates a new Syncer
 func NewSyncer(
 	n notifier.BlockNotifier,
+	db *storage.PebbleDB,
 	blockStore *storage.BlockStore,
 	txStore *storage.TxStore,
 	vinStore *storage.VinStore,
@@ -55,6 +60,7 @@ func NewSyncer(
 ) *Syncer {
 	return &Syncer{
 		notifier:     n,
+		db:           db,
 		blockStore:   blockStore,
 		txStore:      txStore,
 		vinStore:     vinStore,
@@ -168,11 +174,17 @@ func (s *Syncer) syncHistorical(ctx context.Context) {
 
 	log.Printf("[%s] Syncing from height %d to %d", s.chain, startHeight, currentHeight)
 
+	// Enable historical sync mode for faster writes (NoSync)
+	s.db.SetHistoricalSyncMode(true)
+	log.Printf("[%s] Historical sync mode enabled (NoSync, checkpoint every %d blocks)", s.chain, SyncCheckpointInterval)
+
 	// Sync blocks
 	for height := startHeight; height <= currentHeight; height++ {
 		select {
 		case <-ctx.Done():
-			log.Printf("[%s] Sync cancelled at height %d", s.chain, height)
+			log.Printf("[%s] Sync cancelled at height %d, flushing to disk...", s.chain, height)
+			s.db.Sync()
+			s.db.SetHistoricalSyncMode(false)
 			return
 		default:
 		}
@@ -191,9 +203,24 @@ func (s *Syncer) syncHistorical(ctx context.Context) {
 		if height%100 == 0 {
 			log.Printf("[%s] Synced to height %d", s.chain, height)
 		}
+
+		// Checkpoint sync every N blocks to ensure data durability
+		if height%SyncCheckpointInterval == 0 {
+			if err := s.db.Sync(); err != nil {
+				log.Printf("[%s] Warning: checkpoint sync failed at height %d: %v", s.chain, height, err)
+			}
+		}
 	}
 
-	log.Printf("[%s] Historical block sync completed at height %d, now updating spent flags in bulk...", s.chain, currentHeight)
+	// Final sync and disable historical sync mode before bulk operations
+	log.Printf("[%s] Historical block sync completed, flushing to disk...", s.chain)
+	if err := s.db.Sync(); err != nil {
+		log.Printf("[%s] Warning: final sync failed: %v", s.chain, err)
+	}
+	s.db.SetHistoricalSyncMode(false)
+	log.Printf("[%s] Historical sync mode disabled, switching to normal sync", s.chain)
+
+	log.Printf("[%s] Now updating spent flags in bulk...", s.chain)
 
 	// Bulk update spent flags for all vouts
 	spentCount, err := s.voutStore.BulkMarkSpent(s.chain, s.vinStore)

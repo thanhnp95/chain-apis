@@ -171,6 +171,15 @@ func (m *MultiChainTxStore) GetByBlock(chain, blockHash string) ([]*models.Trans
 	return store.GetByBlock(chain, blockHash)
 }
 
+// GetByBlockPaginated retrieves transactions in a block with pagination
+func (m *MultiChainTxStore) GetByBlockPaginated(chain, blockHash string, offset, limit int) ([]*models.Transaction, int, error) {
+	store, err := m.getStore(chain)
+	if err != nil {
+		return nil, 0, err
+	}
+	return store.GetByBlockPaginated(chain, blockHash, offset, limit)
+}
+
 // Delete removes a transaction
 func (m *MultiChainTxStore) Delete(chain, txid string) error {
 	store, err := m.getStore(chain)

@@ -2,10 +2,16 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/thanhnp/chain-apis/internal/storage"
+)
+
+const (
+	defaultLimit = 50
+	maxLimit     = 1000
 )
 
 // TxHandler handles transaction-related API requests
@@ -82,26 +88,55 @@ func (h *TxHandler) Get(c *gin.Context) {
 	})
 }
 
-// GetByBlock returns all transactions in a block
-// GET /api/v1/:chain/blocks/:hash/transactions
+// GetByBlock returns transactions in a block with pagination
+// GET /api/v1/:chain/blocks/:hash/transactions?offset=0&limit=50
 func (h *TxHandler) GetByBlock(c *gin.Context) {
 	chain := c.Param("chain")
 	blockHash := c.Param("hash")
 
-	txs, err := h.txStore.GetByBlock(chain, blockHash)
+	// Parse pagination parameters
+	offset, limit := parsePaginationParams(c)
+
+	txs, total, err := h.txStore.GetByBlockPaginated(chain, blockHash, offset, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if len(txs) == 0 {
+	if total == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No transactions found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"block_hash":   blockHash,
+		"total":        total,
+		"offset":       offset,
+		"limit":        limit,
 		"count":        len(txs),
 		"transactions": txs,
 	})
+}
+
+// parsePaginationParams extracts and validates offset and limit from query parameters
+func parsePaginationParams(c *gin.Context) (offset, limit int) {
+	offset = 0
+	limit = defaultLimit
+
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if v, err := strconv.Atoi(offsetStr); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+			limit = v
+			if limit > maxLimit {
+				limit = maxLimit
+			}
+		}
+	}
+
+	return offset, limit
 }

@@ -79,6 +79,44 @@ func (s *TxStore) GetByBlock(chain, blockHash string) ([]*models.Transaction, er
 	return txs, nil
 }
 
+// GetByBlockPaginated retrieves transactions in a block with pagination
+// Returns transactions, total count, and error
+func (s *TxStore) GetByBlockPaginated(chain, blockHash string, offset, limit int) ([]*models.Transaction, int, error) {
+	prefix := []byte(fmt.Sprintf("%s:", chain))
+	iter, err := s.db.NewPrefixIterator(CFTransactions, prefix)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer iter.Close()
+
+	var allTxs []*models.Transaction
+	for ; iter.Valid(); iter.Next() {
+		value := iter.Value()
+		var tx models.Transaction
+		if err := json.Unmarshal(value, &tx); err != nil {
+			return nil, 0, fmt.Errorf("failed to unmarshal transaction: %w", err)
+		}
+
+		if tx.BlockHash == blockHash {
+			allTxs = append(allTxs, &tx)
+		}
+	}
+
+	total := len(allTxs)
+
+	// Apply pagination
+	if offset >= total {
+		return []*models.Transaction{}, total, nil
+	}
+
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	return allTxs[offset:end], total, nil
+}
+
 // Delete removes a transaction from the database
 func (s *TxStore) Delete(chain, txid string) error {
 	return s.db.Delete(CFTransactions, txKey(chain, txid))

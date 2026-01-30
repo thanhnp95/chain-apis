@@ -151,11 +151,14 @@ type TransactionWithConfirmations struct {
 	Confirmations int64  `json:"confirmations"`
 }
 
-// GetTransactions returns all transactions for an address with confirmations
-// GET /api/v1/:chain/addresses/:address/transactions
+// GetTransactions returns transactions for an address with confirmations and pagination
+// GET /api/v1/:chain/addresses/:address/transactions?offset=0&limit=50
 func (h *AddressHandler) GetTransactions(c *gin.Context) {
 	chain := c.Param("chain")
 	address := c.Param("address")
+
+	// Parse pagination parameters
+	offset, limit := parseAddressPaginationParams(c)
 
 	// Get current height for confirmations calculation
 	currentHeight, _ := h.syncStore.GetSyncedHeight(chain)
@@ -187,9 +190,28 @@ func (h *AddressHandler) GetTransactions(c *gin.Context) {
 		}
 	}
 
-	// Fetch transactions with confirmations
-	var txs []TransactionWithConfirmations
+	// Convert map to slice for consistent ordering and pagination
+	txidList := make([]string, 0, len(txids))
 	for txid := range txids {
+		txidList = append(txidList, txid)
+	}
+
+	total := len(txidList)
+
+	// Apply pagination to txid list
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	paginatedTxids := txidList[start:end]
+
+	// Fetch transactions with confirmations for paginated txids only
+	var txs []TransactionWithConfirmations
+	for _, txid := range paginatedTxids {
 		tx, err := h.txStore.Get(chain, txid)
 		if err != nil || tx == nil {
 			continue
@@ -220,7 +242,38 @@ func (h *AddressHandler) GetTransactions(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"address":      address,
+		"total":        total,
+		"offset":       offset,
+		"limit":        limit,
 		"count":        len(txs),
 		"transactions": txs,
 	})
+}
+
+const (
+	addressDefaultLimit = 50
+	addressMaxLimit     = 1000
+)
+
+// parseAddressPaginationParams extracts and validates offset and limit from query parameters
+func parseAddressPaginationParams(c *gin.Context) (offset, limit int) {
+	offset = 0
+	limit = addressDefaultLimit
+
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if v, err := strconv.Atoi(offsetStr); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+			limit = v
+			if limit > addressMaxLimit {
+				limit = addressMaxLimit
+			}
+		}
+	}
+
+	return offset, limit
 }

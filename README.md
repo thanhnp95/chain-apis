@@ -182,11 +182,25 @@ GET /api/v1/{chain}/blocks/{hash}
 GET /api/v1/{chain}/blocks/{hash}/transactions
 ```
 
+**Query Parameters:**
+| Parameter | Type | Default | Max | Description |
+|-----------|------|---------|-----|-------------|
+| `offset` | integer | 0 | - | Number of transactions to skip |
+| `limit` | integer | 50 | 1000 | Maximum number of transactions to return |
+
+**Example:**
+```
+GET /api/v1/btc/blocks/{hash}/transactions?offset=0&limit=100
+```
+
 **Response:**
 ```json
 {
   "block_hash": "000000000000000000024bead8df69990852c202db0e0097c1a12ea637d7e96d",
-  "count": 2500,
+  "total": 2500,
+  "offset": 0,
+  "limit": 100,
+  "count": 100,
   "transactions": [...]
 }
 ```
@@ -350,11 +364,25 @@ GET /api/v1/{chain}/addresses/{address}/vouts
 GET /api/v1/{chain}/addresses/{address}/transactions
 ```
 
+**Query Parameters:**
+| Parameter | Type | Default | Max | Description |
+|-----------|------|---------|-----|-------------|
+| `offset` | integer | 0 | - | Number of transactions to skip |
+| `limit` | integer | 50 | 1000 | Maximum number of transactions to return |
+
+**Example:**
+```
+GET /api/v1/btc/addresses/1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa/transactions?offset=0&limit=20
+```
+
 **Response:**
 ```json
 {
   "address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-  "count": 100,
+  "total": 100,
+  "offset": 0,
+  "limit": 20,
+  "count": 20,
   "transactions": [
     {
       "txid": "abc123...",
